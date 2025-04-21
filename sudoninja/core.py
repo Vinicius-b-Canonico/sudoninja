@@ -2,6 +2,7 @@ import random
 import copy
 import math
 import os
+import shutil
 
 def print_verbose(verbose, *args):
     if verbose:
@@ -88,7 +89,79 @@ def remove_numbers_with_validity_check(grid, block_size, cells_to_remove, verbos
     print_verbose(verbose, f"Removed {removed} cells after {attempts} attempts.")
     return grid
 
-def generate_sudoku(block_size=3, cells_to_remove=40, verbose=False, premade_blocks=None):
+def generate_sudoku(block_size=3, cells_to_remove=40, verbose=False, premade_blocks=None, is_multi_sudoku=False):
+    """
+    Generates a Sudoku puzzle and its corresponding solution.
+
+    This function creates either a standard Sudoku puzzle or a complex multi-sudoku puzzle based on the parameters.
+    It supports injecting pre-defined blocks into the grid (for corner embedding or special cases) and can be used
+    both for independent puzzles and as part of a larger composite puzzle (e.g., multi-sudoku).
+
+    Parameters:
+    -----------
+    block_size : int, optional (default=3)
+        The size of a single block (sub-grid) in the puzzle. A block_size of 3 generates a standard 9x9 grid.
+
+    cells_to_remove : int, optional (default=40)
+        The number of cells to remove from the completed grid in order to form the final puzzle. 
+        This controls the puzzle’s difficulty.
+
+    verbose : bool, optional (default=False)
+        If True, enables verbose logging of the generation process.
+
+    premade_blocks : dict, optional (default=None) (only applied if not multi sudoku for now, but can 100% be improved by a ninja)
+        A dictionary specifying pre-filled blocks to be embedded into the puzzle before generation.
+        The keys are (block_row, block_col) positions (0-indexed), and the values are 2D lists representing 
+        full sub-grids (e.g., 3x3 if block_size=3) to place at those locations.
+
+        Example:
+        --------
+        premade_blocks = {
+            (0, 0): [
+                [5, 0, 0],
+                [0, 7, 0],
+                [0, 0, 1]
+            ]
+        }
+
+    is_multi_sudoku : bool, optional (default=False)
+        If True, generates a full multi-sudoku puzzle layout instead of a single 9x9 grid. 
+        Delegates puzzle creation to `create_multi_sudoku`.
+
+    Returns:
+    --------
+    tuple of (puzzle, solution):
+        - puzzle : list of lists
+            The generated Sudoku puzzle with some numbers removed.
+        - solution : list of lists
+            The complete solution for the generated puzzle.
+
+    Notes:
+    ------
+    - If `is_multi_sudoku=True`, the function ignores `premade_blocks` and returns a combined multi-grid directly.
+    - The internal validity of the puzzle is preserved during removal of cells, ensuring the puzzle remains solvable.
+
+    Example Usage:
+    --------------
+    puzzle, solution = generate_sudoku(
+        block_size=3,
+        cells_to_remove=40,
+        verbose=True,
+        premade_blocks={
+            (0, 0): [
+                [5, 0, 0],
+                [0, 7, 0],
+                [0, 0, 1]
+            ]
+        }
+    )
+    print("Puzzle:")
+    print_grid(puzzle)
+    print("Solution:")
+    print_grid(solution)
+    """
+    if is_multi_sudoku:
+        return create_multi_sudoku(block_size=block_size,cells_to_remove=cells_to_remove,verbose=verbose)
     grid_size = block_size * block_size
     grid = [[0 for _ in range(grid_size)] for _ in range(grid_size)]
     print_verbose(verbose, f"Starting Sudoku generation with {grid_size}x{grid_size} grid.")
@@ -124,7 +197,6 @@ def apply_premade_blocks(grid, block_size, premade_blocks, verbose=False):
 
     return grid
 
-
 def extract_block(grid, block_size, block_row, block_col):
     """Extracts a block (as a 2D list) from a Sudoku grid."""
     return [
@@ -136,7 +208,44 @@ def extract_block(grid, block_size, block_row, block_col):
     ]
 
 def create_multi_sudoku(block_size=3, cells_to_remove=40, verbose=False):
+    """
+    Creates a multi-sudoku puzzle composed of five interconnected Sudoku grids.
 
+    This function generates a complex puzzle structure where four smaller sudoku puzzles
+    are placed in the corners (top-left, top-right, bottom-left, bottom-right), and a central
+    sudoku puzzle sits in the middle. These five grids are partially linked through shared blocks:
+    - The corner puzzles each include one pre-filled 3x3 block taken from the central puzzle's solution.
+    - These shared blocks ensure interdependence between the five grids, creating a unique and challenging puzzle layout.
+
+    Parameters:
+    -----------
+    block_size : int, optional (default=3)
+        The size of a single block in each sudoku grid. A value of 3 produces standard 9x9 sudoku puzzles.
+
+    cells_to_remove : int, optional (default=40)
+        The number of cells to remove from each generated puzzle, controlling the difficulty level.
+
+    verbose : bool, optional (default=False)
+        If True, enables verbose output from the puzzle generation process for debugging or inspection.
+
+    Returns:
+    --------
+    combined : list of lists
+        A 2D grid representing the full multi-sudoku layout with five interlinked puzzles.
+        The combined layout is larger than a standard sudoku grid and follows this structure:
+
+            [ TL |     | TR ]
+            [     |  C  |    ]
+            [ BL |     | BR ]
+
+        Each grid is filled independently but includes one 3x3 block from the central solution
+        to maintain coherence between the puzzles.
+
+    Example:
+    --------
+    multi_grid = create_multi_sudoku(block_size=3, cells_to_remove=45)
+    print_grid(multi_grid, block_size=3, is_multi_sudoku=True)
+    """
     # Step 1: Generate the central game
     central_puzzle, central_solution = generate_sudoku(block_size, cells_to_remove, verbose)
 
@@ -255,163 +364,7 @@ def combine_grids_with_center(top_left, top_right, bottom_left, bottom_right, ce
 
 #====================================THIS ARE OUTPUT FUNCTIONS =============================================
 
-# I THINK THIS ONE BELOW IS DEPRECATED
-def print_multi_sudoku(multi_sudoku_dict, block_size):
-    grid_size = block_size * block_size
-    empty_block = [["X" for _ in range(grid_size)] for _ in range(grid_size)]
-
-    # Shorthand access
-    TL = multi_sudoku_dict["TL"]
-    TR = multi_sudoku_dict["TR"]
-    BL = multi_sudoku_dict["BL"]
-    BR = multi_sudoku_dict["BR"]
-    CT = multi_sudoku_dict["central"]
-
-    def get_row_section(grid, row_idx):
-        return grid[row_idx] if grid is not None else ["X"] * grid_size
-
-    def format_row(cells, block_size):
-        row_str = ""
-        for i, val in enumerate(cells):
-            if i % block_size == 0:
-                row_str += "|"
-            row_str += f" {val:2}" if val != "X" and val != 0 else "  ."
-        row_str += "|"
-        return row_str
-
-    def horizontal_separator(block_size, num_blocks=3):
-        return "+" + "+".join(["-" * (3 * block_size)] * num_blocks) + "+"
-
-    total_rows = grid_size * 3  # 3 blocks vertically: TL/CT/BL
-
-    for row in range(total_rows):
-        if row % block_size == 0:
-            print(
-                horizontal_separator(block_size, 7)
-            )  # full width across all 7 blocks (3 left, 1 mid, 3 right)
-
-        row_parts = []
-
-        # Top block row
-        if row < grid_size:
-            # TL - Empty - TR
-            row_parts.extend([
-                format_row(get_row_section(TL, row), block_size),
-                format_row(get_row_section(empty_block, row), block_size),
-                format_row(get_row_section(TR, row), block_size),
-            ])
-        elif row < grid_size * 2:
-            # Middle block row - BL, Central, BR
-            central_row = row - grid_size
-            row_parts.extend([
-                format_row(get_row_section(BL, central_row), block_size),
-                format_row(get_row_section(CT, central_row), block_size),
-                format_row(get_row_section(BR, central_row), block_size),
-            ])
-        else:
-            # Bottom block row - Empty
-            lower_row = row - grid_size * 2
-            row_parts.extend([
-                format_row(get_row_section(empty_block, lower_row), block_size),
-                format_row(get_row_section(empty_block, lower_row), block_size),
-                format_row(get_row_section(empty_block, lower_row), block_size),
-            ])
-
-        # Combine the 3-part row visually into 7 blocks (some are empty)
-        print("".join(row_parts[:1]) +  # TL/BL/empty
-              "".join(row_parts[1:2]) +  # middle blank or CT
-              "".join(row_parts[2:]))   # TR/BR/empty
-
-    print(horizontal_separator(block_size, 7))
-
-def print_grid(grid, block_size=None):
-    grid_size = len(grid)
-    if block_size is None:
-        block_size = int(math.sqrt(grid_size))
-
-    horizontal_line = "+" + "+".join(["-" * (3 * block_size)] * block_size) + "+"
-
-    for i, row in enumerate(grid):
-        if i % block_size == 0:
-            print(horizontal_line)
-        row_str = ""
-        for j, val in enumerate(row):
-            if j % block_size == 0:
-                row_str += "|"
-            row_str += f" {val:2}" if val != 0 else "  ."
-        row_str += "|"
-        print(row_str)
-    print(horizontal_line)
-
-def stable_new_print_grid(grid, block_size, is_multi_sudoku=False):
-    """
-    Prints a formatted grid to the console.
-
-    This function takes a grid (list of lists), formats it in a structured way, and prints the content to the console.
-    The grid will be divided into blocks of size `block_size` by `block_size`, with special formatting for the values:
-    - Values that are `0` are displayed as a dot (`.`).
-    - Values that are `"X"` are displayed as `XX`.
-    - Other values are displayed normally, padded to a width of 2 characters for neatness.
-    The grid will be wrapped in horizontal lines (`+---+---+...`) for visual clarity, and vertical bars (`|`) separate the blocks.
-
-    Parameters:
-    -----------
-    grid : list of list
-        The 2D list that represents the grid, where each element is either a number or a special character like `"X"`.
-        Example:
-        [
-            [1, 2, 3, 0],
-            [4, 5, 6, 0],
-            [7, 8, 9, 'X'],
-            [0, 0, 0, 0]
-        ]
-        
-    block_size : int
-        The size of the blocks in the grid. It determines how large each block is. 
-        For example, `block_size=3` means a 9x9 grid.
-
-    Example usage:
-    --------------
-    grid = [
-        [1, 2, 3, 0],
-        [4, 5, 6, 0],
-        [7, 8, 9, 'X'],
-        [0, 0, 0, 0]
-    ]
-    print_grid(grid, 3)
-    
-    This will print the grid in a nicely formatted structure to the console.
-
-    Output:
-    -------
-    A formatted grid will be printed to the console with horizontal lines, vertical bars, and properly formatted values.
-    """
-
-    full_block_size = block_size
-    if is_multi_sudoku:
-        full_block_size = block_size * 2 + (block_size-2)
-
-    horizontal_line = "+" + "+".join(["-" * (3 * block_size)] * full_block_size) + "+"
-
-    # Print the grid to the console
-    for i, row in enumerate(grid):
-        if i % block_size == 0:
-            print(horizontal_line)
-        row_str = ""
-        for j, val in enumerate(row):
-            if j % block_size == 0:
-                row_str += "|"
-            if val == 0:
-                row_str += "  ."
-            elif isinstance(val, str) and val.upper() == "X":
-                row_str += " XX"
-            else:
-                row_str += f" {val:2}"
-        row_str += "|"
-        print(row_str)
-    print(horizontal_line)
-
-def new_print_grid(grid, block_size, is_multi_sudoku=False):
+def print_grid(grid, block_size, is_multi_sudoku=False):
     """
     Prints a formatted grid to the console.
 
@@ -489,95 +442,26 @@ def new_print_grid(grid, block_size, is_multi_sudoku=False):
         print(row_str)
     print(horizontal_line)
 
-
-def stable_save_grid_to_file(grid, block_size, filename="combined_grid.txt"):
+def save_grid_to_file(grid, block_size, filename="combined_grid.txt", is_multi_sudoku=False, overwrite_existing: bool = False):
     """
-    Saves a formatted grid to a text file.
-
-    This function takes a grid (list of lists), formats it in a structured way, and saves the content to a file.
-    The grid will be divided into blocks of size `block_size` by `block_size`, with special formatting for the values:
-    - Values that are `0` are displayed as a dot (`.`).
-    - Values that are `"X"` are displayed as `XX`.
-    - Other values are displayed normally, padded to a width of 2 characters for neatness.
-    The grid will be wrapped in horizontal lines (`+---+---+...`) for visual clarity, and vertical bars (`|`) separate the blocks.
-
-    Parameters:
-    -----------
-    grid : list of list
-        The 2D list that represents the grid, where each element is either a number or a special character like `"X"`.
-        Example:
-        [
-            [1, 2, 3, 0],
-            [4, 5, 6, 0],
-            [7, 8, 9, 'X'],
-            [0, 0, 0, 0]
-        ]
-        
-    block_size : int
-        The size of the blocks in the grid. It determines how large each block is. 
-        For example, `block_size=3` means a 9x9 grid.
-
-    filename : str, optional, default="combined_grid.txt"
-        The name of the file to save the grid to. If not provided, the default file name is `"combined_grid.txt"`.
-
-    Example usage:
-    --------------
-    grid = [
-        [1, 2, 3, 0],
-        [4, 5, 6, 0],
-        [7, 8, 9, 'X'],
-        [0, 0, 0, 0]
-    ]
-    save_grid_to_file(grid, 3)
-    
-    This will create a file "combined_grid.txt" with the formatted grid content.
-
-    Output:
-    -------
-    A file will be created with the grid saved in a formatted structure.
-    Additionally, the absolute path of the saved file will be printed to the console.
-
-    """
-    full_block_size = block_size * 2 + (block_size-2)  # since grid is now 2x width and height
-    horizontal_line = "+" + "+".join(["-" * (3 * block_size)] * full_block_size) + "+"
-
-    with open(filename, "w") as f:
-        for i, row in enumerate(grid):
-            if i % block_size == 0:
-                f.write(horizontal_line + "\n")
-            row_str = ""
-            for j, val in enumerate(row):
-                if j % block_size == 0:
-                    row_str += "|"
-                if val == 0:
-                    row_str += "  ."
-                elif isinstance(val, str) and val.upper() == "X":
-                    row_str += " XX"
-                else:
-                    row_str += f" {val:2}"
-            row_str += "|"
-            f.write(row_str + "\n")
-        f.write(horizontal_line + "\n")
-
-
-    print(f"✅ Grid saved to: {os.path.abspath(filename)}")
-
-def save_grid_to_file(grid, block_size, filename="combined_grid.txt", is_multi_sudoku=False):
-    """
-    Saves a formatted grid to a text file.
+    Saves a formatted grid to a text file, auto-creating folders and appending '.txt' if missing.
 
     This function takes a grid (list of lists), formats it in a structured way, and writes it to a text file.
     It divides the grid into blocks of size `block_size` by `block_size`, and optionally adds extra spacing for 
     multi-sudoku layouts (i.e., concatenated or composite sudoku grids).
 
-    The grid uses the following formatting rules:
+    Enhancements:
+    -------------
+    - If the `filename` includes directories that don't exist, they will be created automatically.
+    - If the `filename` does not include a file extension, `.txt` is appended automatically.
+
+    Formatting Rules:
+    -----------------
     - Values equal to `0` are shown as a dot (`.`).
     - Values equal to `"X"` (case-insensitive) are shown as `XX`.
     - All other values are shown padded to two characters (e.g., ` 7`, `10`).
     - Horizontal lines (`+---+---+...`) separate block rows.
     - Vertical bars (`|`) separate block columns.
-
-    If `is_multi_sudoku` is True, the formatting adjusts to fit multi-grid sudoku layouts.
 
     Parameters:
     -----------
@@ -588,10 +472,15 @@ def save_grid_to_file(grid, block_size, filename="combined_grid.txt", is_multi_s
         Size of one block in the grid. For example, `block_size=3` is used for standard 9x9 Sudoku.
 
     filename : str, optional (default="combined_grid.txt")
-        Name of the file where the grid will be saved.
+        Name (and optional path) of the file where the grid will be saved.
 
     is_multi_sudoku : bool, optional (default=False)
         If set to True, assumes the grid is a multi-sudoku (composed of multiple sudoku blocks) and adjusts the formatting accordingly.
+
+    overwrite_existing : bool, optional (default=False)
+        If True, will overwrite the file if it already exists.
+        If False, will automatically rename the file to avoid overwriting,
+        using the format: "filename_previous_1.txt", "filename_previous_2.txt", etc.
 
     Example:
     --------
@@ -601,13 +490,30 @@ def save_grid_to_file(grid, block_size, filename="combined_grid.txt", is_multi_s
         [7, 8, 9, 'X'],
         [0, 0, 0, 0]
     ]
-    save_grid_to_file(grid, 3, "output.txt", is_multi_sudoku=True)
+    save_grid_to_file(grid, 3, "saves/output_grid", is_multi_sudoku=True)
 
     Output:
     -------
     A file will be created with the formatted grid content.
     The absolute path of the saved file will be printed to the console.
     """
+    if not os.path.splitext(filename)[1]:
+        filename += ".txt"
+
+    # 🔧 Ensure the folder path exists before writing
+    if os.path.dirname(filename):
+        os.makedirs(os.path.dirname(filename), exist_ok=True)
+
+    # Handle file backup logic
+    if not overwrite_existing and os.path.exists(filename):
+        base, ext = os.path.splitext(filename)
+        i = 1
+        backup_filename = f"{base}_previous_{i}{ext}"
+        while os.path.exists(backup_filename):
+            i += 1
+            backup_filename = f"{base}_previous_{i}{ext}"
+        shutil.move(filename, backup_filename)
+        
     full_block_size = block_size
     if is_multi_sudoku:
         full_block_size = block_size * 2 + (block_size - 2)
@@ -634,65 +540,171 @@ def save_grid_to_file(grid, block_size, filename="combined_grid.txt", is_multi_s
 
     print(f"✅ Grid saved to: {os.path.abspath(filename)}")
 
-# Example usage:
-# Assuming you have 4 grids of size 9x9 (block_size = 3)
 
-# === Usage Examples ===
+# === Example Usage ===
+# These are runnable examples when executing this script directly.
+# They demonstrate usage of core functions like generate_sudoku, save_grid_to_file, and print_grid.
+# also, i dont enforce uniqueness in solutions, as most sudoku generation engines seem to do.
+# this makes it way simpler and for my use is not a problem, but feel free to PR if you can code it!
 if __name__ == "__main__":
-    # Choose 3 for classic, 4 for 16x16, 5 for 25x25, etc.
-    block_size = 3          # 4x4 blocks = 16x16 grid
-    cells_to_remove = 50   # Adjust based on difficulty
-    verbose = False          # Enable debugging output
-    testing_multi_sudoku = False
-    if testing_multi_sudoku:
-        game = create_multi_sudoku(block_size=block_size,cells_to_remove=40, verbose=False)
-        save_grid_to_file(game, block_size,filename="my_grid.txt",is_multi_sudoku=True)
-        new_print_grid(grid=game,block_size=block_size,is_multi_sudoku=True)
-    else:
-        puzzle1, solution1 = generate_sudoku(block_size=block_size, cells_to_remove=cells_to_remove, verbose=verbose)
-        print("\nGenerated Puzzle 1 :")
-        new_print_grid(puzzle1, block_size=3,is_multi_sudoku=False)
-        save_grid_to_file(puzzle1, block_size,filename="my_grid.txt",is_multi_sudoku=False)
+    # Block size:
+    # - 3 => 9x9 Sudoku
+    # - 4 => 16x16 Sudoku
+    # - 5 => 25x25 Sudoku (may be unstable)
+    # - Block sizes <3 not fully tested
+    block_size = 3
+    cells_to_remove = 50  # Difficulty setting: more cells removed = harder puzzle
+    #remenber need at least 17 numbers seeable to find a solution
+    verbose = False
 
-        print("Solution 1 :")
-        print_grid(solution1)
-        # premade9X9 = {
-        #     (0, 0): [
-        #         [5, 0, 0],
-        #         [0, 7, 0],
-        #         [0, 0, 1]
-        #     ]
-        # }
-        # puzzle2, solution2 = generate_sudoku(
-        #     block_size=3,
-        #     cells_to_remove=40,
-        #     verbose=verbose,
-        #     premade_blocks=premade9X9
-        # )
-        # print("\nGenerated 9X9 Puzzle with premade block :")
-        # print(premade9X9)
-        # print_grid(puzzle2)
-        # print("Solution 9X9 Puzzle with premade block :")
-        # print_grid(solution2)
-        # premade16X16 = {
+    # Toggle between single-grid and multi-grid Sudoku
+    testing_multi_sudoku = False
+
+    if testing_multi_sudoku:
+        grid = create_multi_sudoku(block_size=block_size, cells_to_remove=cells_to_remove, verbose=verbose)
+        save_grid_to_file(grid, block_size, filename="examples/multi_grid.txt", is_multi_sudoku=True)
+        print_grid(grid=grid, block_size=block_size, is_multi_sudoku=True)
+
+    else:
+        # === Standard Puzzle ===
+        puzzle, solution = generate_sudoku(
+            block_size=block_size,
+            cells_to_remove=cells_to_remove,
+            verbose=verbose
+        )
+        print("\nGenerated Standard Sudoku Puzzle:")
+        print_grid(puzzle, block_size=block_size)
+        save_grid_to_file(puzzle, block_size, filename="examples/standard_grid.txt")
+
+        print("\nSolution:")
+        print_grid(solution, block_size=block_size)
+
+        # === 9x9 with Premade Block ===
+        #this premade blocks were mainly made as a way to allow for the multi-sudoku, but they do allow for
+        #some further customization if anyone cares to. by doing this, you can send blocks of prechoosen numbers
+        # to be part of the final solution, with 0 being cells to put a random number in, 
+        # and 1-9 being the actual numbers.
+        # the cordinate pairs are for the blocks of 3X3 or 4X4 depending on the block_size 
+        #
+        # this whole system can eventually be improved to:
+        #                allow for forcing cells to be open in the puzzle state.
+        #                allow for customization at the cell level
+        #
+        # Uncomment to test
+        premade9x9 = {
+            (0, 0): [
+                [5, 0, 0],
+                [0, 7, 0],
+                [0, 0, 1]
+            ]
+        }
+        puzzle2, solution2 = generate_sudoku(
+            block_size=3,
+            cells_to_remove=40,
+            verbose=verbose,
+            premade_blocks=premade9x9
+        )
+        print("\nGenerated 9x9 Puzzle with Premade Block:")
+        print(premade9x9)
+        print_grid(puzzle2,block_size=3)
+        print("Solution:")
+        print_grid(solution2,block_size=3)
+
+        # === 16x16 with Premade Block ===
+        # Uncomment to test
+        # premade16x16 = {
         #     (0, 0): [
         #         [ 1,  2,  0,  0],
         #         [ 0,  0,  5,  6],
         #         [ 0,  9, 10,  0],
-        #         [13,  0,  0, 16],
+        #         [13,  0,  0, 16]
         #     ]
         # }
         # puzzle3, solution3 = generate_sudoku(
         #     block_size=4,
         #     cells_to_remove=40,
         #     verbose=verbose,
-        #     premade_blocks=premade16X16
+        #     premade_blocks=premade16x16
         # )
-        # print("\nGenerated 16X16 Puzzle with premade block :")
-        # print(premade16X16)
-        # print_grid(puzzle3)
-        # print("Solution 16X16 Puzzle with premade block  :")
-        # print_grid(solution3)
+        # print("\nGenerated 16x16 Puzzle with Premade Block:")
+        # print(premade16x16)
+        # print_grid(puzzle3,block_size=4)
+        # print("Solution:")
+        # print_grid(solution3,block_size=4)
+
+
+
+
+
+
+
+
+
+
+
+
+# Example usage:
+
+# # === Usage Examples ===
+# #need to clean this up when i can, feel free to anyone
+# if __name__ == "__main__":
+#     # Choose 3 for classic, 4 for 16x16, 5 for 25x25, etc.
+#     # block size of 5 and above doesnt seem to be very stable.
+#     # havent tested with 2 or 1 either, no idea whatd happen lol
+
+#     block_size = 3          # 4x4 blocks = 16x16 grid
+#     cells_to_remove = 50   # Adjust based on difficulty
+#     verbose = False          # Enable debugging output
+#     testing_multi_sudoku = True
+#     if testing_multi_sudoku:
+#         game = create_multi_sudoku(block_size=block_size,cells_to_remove=40, verbose=False)
+#         save_grid_to_file(game, block_size,filename="my_grid.txt",is_multi_sudoku=True)
+#         print_grid(grid=game,block_size=block_size,is_multi_sudoku=True)
+#     else:
+#         puzzle1, solution1 = generate_sudoku(block_size=block_size, cells_to_remove=cells_to_remove, verbose=verbose)
+#         print("\nGenerated Puzzle 1 :")
+#         print_grid(puzzle1, block_size=3,is_multi_sudoku=False)
+#         save_grid_to_file(puzzle1, block_size,filename="my_grid.txt",is_multi_sudoku=False)
+
+#         print("Solution 1 :")
+#         print_grid(solution1, block_size=3, is_multi_sudoku=False)
+#         # premade9X9 = {
+#         #     (0, 0): [
+#         #         [5, 0, 0],
+#         #         [0, 7, 0],
+#         #         [0, 0, 1]
+#         #     ]
+#         # }
+#         # puzzle2, solution2 = generate_sudoku(
+#         #     block_size=3,
+#         #     cells_to_remove=40,
+#         #     verbose=verbose,
+#         #     premade_blocks=premade9X9
+#         # )
+#         # print("\nGenerated 9X9 Puzzle with premade block :")
+#         # print(premade9X9)
+#         # print_grid(puzzle2)
+#         # print("Solution 9X9 Puzzle with premade block :")
+#         # print_grid(solution2)
+#         # premade16X16 = {
+#         #     (0, 0): [
+#         #         [ 1,  2,  0,  0],
+#         #         [ 0,  0,  5,  6],
+#         #         [ 0,  9, 10,  0],
+#         #         [13,  0,  0, 16],
+#         #     ]
+#         # }
+#         # puzzle3, solution3 = generate_sudoku(
+#         #     block_size=4,
+#         #     cells_to_remove=40,
+#         #     verbose=verbose,
+#         #     premade_blocks=premade16X16
+#         # )
+#         # print("\nGenerated 16X16 Puzzle with premade block :")
+#         # print(premade16X16)
+#         # print_grid(puzzle3)
+#         # print("Solution 16X16 Puzzle with premade block  :")
+#         # print_grid(solution3)
 
 
 
